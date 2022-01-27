@@ -1,0 +1,8 @@
+.DS_Store
+.idea
+.venv
+data/imgs/*
+data/video/*
+data/output/*
+*.mov
+*.mp4
