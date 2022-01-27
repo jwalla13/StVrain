@@ -1,9 +1,14 @@
 ## Python Versioning + Lambda 
-Lambda will have a Python 3.6 runtime and so it is important to be careful with
+Lambda will have a Python 3.7.4 runtime and so it is important to be careful with
 python packages. 
-* Create venv:```python3.6 -m venv .venv```
+* Create venv:```python3.7 -m venv .venv```
 * Activate venv:```source .venv/bin/activate```
 * Install packages from requirements.txt:```pip install -r requirements.txt```
+
+
+## Data Directory Structure
+Currently, the project expects /data/video, /data/imgs, and /data/output directories
+on the same level as /src
 
 ## Cameras
 Axis P3367-VE 5mp Dome (Slowly phasing out)
@@ -29,3 +34,4 @@ https://www.adobe.com/creativecloud/video/discover/best-video-format.html
 
 ## Homebrew
 ```brew install ffmpeg```
+
