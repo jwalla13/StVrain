@@ -10,6 +10,8 @@ import moviepy.editor as mp
 CV2_FRAME_RATE =  cv2.CAP_PROP_FPS
 SIM_FRAME_RATE = 30
 
+IMAGE_DIRECTORY = "../data/imgs/"
+VIDEO_DIRECTORY = "../data/video/"
 
 def main():
 
@@ -44,11 +46,7 @@ def convert_to_mp4():
 
     Flags: -rm removes original video
     """
-    src = '../data/video'
-    dst = '../data/video'
-
-    for root, dirs, filenames in os.walk(src, topdown=False):
-        print(src)
+    for root, dirs, filenames in os.walk(VIDEO_DIRECTORY, topdown=False):
         for filename in filenames:
             print('[INFO] 1', filename)
             try:
@@ -64,7 +62,7 @@ def convert_to_mp4():
 
                 inputfile = os.path.join(root, filename)
                 outputfile = os.path.join(
-                    dst, filename.lower().replace(_format, ".mp4"))
+                    VIDEO_DIRECTORY, filename.lower().replace(_format, ".mp4"))
 
                 # dependent on ffmpeg package
                 subprocess.call(['ffmpeg', '-i', inputfile, outputfile])
@@ -83,10 +81,7 @@ def split_video():
     """
 
     # Read the video from specified path
-    input_dir = '../data/video/'
-    output_dir = '../data/imgs/'
-
-    cam = cv2.VideoCapture(input_dir + "walking.mp4")
+    cam = cv2.VideoCapture(VIDEO_DIRECTORY + "walking.mp4")
     print("duration\n")
 
     video_info = get_duration(cam)
@@ -123,7 +118,7 @@ def split_video():
 
         # failed attempt to simulate frame rate
         # if currentframe % frame_selector == 0:
-        name = output_dir + 'frame-' + str(currentframe) + '.jpg'
+        name = IMAGE_DIRECTORY + 'frame-' + str(currentframe) + '.jpg'
         print ('Creating...' + name)
 
         # writing the extracted images
@@ -161,17 +156,15 @@ def remove_all_imgs():
     Remove all images from ../data/imgs
     """
 
-    dir_name = "../data/imgs"
-    test = os.listdir(dir_name)
+    all_images = os.listdir(IMAGE_DIRECTORY)
 
-    for item in test:
-        if item.endswith(".jpg"):
-            os.remove(os.path.join(dir_name, item))
+    for image in all_images:
+        if image.endswith(".jpg"):
+            os.remove(os.path.join(IMAGE_DIRECTORY, image))
 
 
 def remove_dead_frames(video_info):
-    dir_name = "../data/imgs/"
-    image_directory_content = os.listdir(dir_name)
+    image_directory_content = os.listdir(IMAGE_DIRECTORY)
     frames = list(filter(lambda image: image.endswith(".jpg"), image_directory_content))
     frames.sort()
     frame_increment = int(video_info.get("fps")/2)
@@ -187,8 +180,8 @@ def remove_dead_frames(video_info):
 
     for frame_number in range(0, len(frames), frame_increment):
         if frame_number + frame_increment < len(frames):
-            img1 = cv2.imread(dir_name + "frame-" + str(frame_number) + ".jpg")
-            img2 = cv2.imread(dir_name + "frame-" + str(frame_number + frame_increment) + ".jpg")
+            img1 = cv2.imread(IMAGE_DIRECTORY + "frame-" + str(frame_number) + ".jpg")
+            img2 = cv2.imread(IMAGE_DIRECTORY + "frame-" + str(frame_number + frame_increment) + ".jpg")
             absolute_difference = cv2.absdiff(img1, img2).astype(np.uint8)
             threshold_difference = cv2.threshold(absolute_difference, 10, 255, cv2.THRESH_BINARY)[1]
             percent_diff = (np.count_nonzero(threshold_difference) * 100) / absolute_difference.size
@@ -200,7 +193,7 @@ def remove_dead_frames(video_info):
                     print(timestamp)
 
                 for frame in range(frame_number, frame_number + frame_increment):
-                    img = cv2.imread(dir_name + "frame-" + str(frame) + ".jpg")
+                    img = cv2.imread(IMAGE_DIRECTORY + "frame-" + str(frame) + ".jpg")
                     active_clips.append(img)
             else:
                 if recording_audio:
