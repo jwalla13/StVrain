@@ -1,128 +1,113 @@
+import boto3
 import os
 import subprocess
-import sys
 import numpy as np
 import cv2
 from pydub import AudioSegment
 import moviepy.editor as mp
 
 # ------ MACROS ------
-CV2_FRAME_RATE =  cv2.CAP_PROP_FPS
+CV2_FRAME_RATE = cv2.CAP_PROP_FPS
 SIM_FRAME_RATE = 30
 
-IMAGE_DIRECTORY = "../data/imgs/"
-VIDEO_DIRECTORY = "../data/video/"
+BUCKET_NAME = 'mock-output-images'
+SOURCE_VIDEO_PREFIX = 'source_video/'
+IMAGES_PREFIX = 'images/'
+VIDEO_WITHOUT_AUDIO_PREFIX = 'video_without_audio/'
+AUDIO_PREFIX = 'audio/'
+VIDEO_WITH_AUDIO_PREFIX = 'video_with_audio/'
+
+TEMP_DIRECTORY = './tmp/'
+
+# session = boto3.Session(profile_name='mike-personal')
+# s3_client = session.client('s3')
+
+s3 = boto3.resource('s3')
+s3_client = boto3.client('s3')
 
 def main():
+    input_file_name = "walking.mov"
+    # print("converting file")
+    # mov_file_name = convert_to_mp4(input_file_name)
 
-    # use -rmi flag to remove images
-    if '-rmi' in sys.argv:
-        remove_all_imgs()
+    s3_client.download_file(Bucket=BUCKET_NAME,
+                            Key=SOURCE_VIDEO_PREFIX + input_file_name,
+                            Filename=TEMP_DIRECTORY + input_file_name)
 
-    # convert all videos in /video to mp4
-    if '-c' in sys.argv:
-        convert_to_mp4()
+    cam = cv2.VideoCapture(TEMP_DIRECTORY + input_file_name)
+    print("STEP: Getting video info")
+    video_info = get_duration(cam)
 
-    # controls frame rate
-    if '-fps' in sys.argv:
-        SIM_FRAME_RATE = sys.argv[sys.argv.index('-fps') + 1]
+    print("STEP: Splitting file into frames")
+    split_video(input_file_name, video_info)
+    print("STEP: Removing dead frames")
+    remove_dead_frames(video_info, input_file_name, cam)
 
-    if '-sv' in sys.argv:
-        split_video()
-
-    # remove dead frames
-    if '-rdf' in sys.argv:
-        cam = cv2.VideoCapture("../data/video/walking.mp4")
-        video_info = get_duration(cam)
-        remove_dead_frames(video_info)
-
-    #split_video()
-    #remove_dead_frames()
+    clear_temp_folder()
 
 
-def convert_to_mp4():
+def convert_to_mp4(input_file_name):
     """
     Converts all videos in ../data/video to .mp4
 
     Flags: -rm removes original video
     """
-    for root, dirs, filenames in os.walk(VIDEO_DIRECTORY, topdown=False):
-        for filename in filenames:
-            print('[INFO] 1', filename)
-            try:
-                _format = ''
-                if ".flv" in filename.lower():
-                    _format = ".flv"
-                if ".mp4" in filename.lower():
-                    _format = ".mp4"
-                if ".avi" in filename.lower():
-                    _format = ".avi"
-                if ".mov" in filename.lower():
-                    _format = ".mov"
+    try:
+        _format = ''
+        if ".flv" in input_file_name.lower():
+            _format = ".flv"
+        if ".mp4" in input_file_name.lower():
+            _format = ".mp4"
+        if ".avi" in input_file_name.lower():
+            _format = ".avi"
+        if ".mov" in input_file_name.lower():
+            _format = ".mov"
 
-                inputfile = os.path.join(root, filename)
-                outputfile = os.path.join(
-                    VIDEO_DIRECTORY, filename.lower().replace(_format, ".mp4"))
+        s3_client.download_file(Bucket=BUCKET_NAME,
+                                Key=SOURCE_VIDEO_PREFIX + input_file_name,
+                                Filename=TEMP_DIRECTORY + input_file_name)
 
-                # dependent on ffmpeg package
-                subprocess.call(['ffmpeg', '-i', inputfile, outputfile])
+        mov_file_name = input_file_name.lower().replace(_format, ".mp4")
+        mp4_file_path = TEMP_DIRECTORY + input_file_name.lower().replace(_format, ".mp4")
+        subprocess.call(['ffmpeg', '-i', TEMP_DIRECTORY + input_file_name, mp4_file_path])
 
-                # removes original video
-                ext = outputfile.split('.')[-1]
-                if os.path.exists(outputfile) and ext != 'mp4' and '-rm' in sys.argv:
-                    subprocess.call(['rm', inputfile])
-            except Exception as e:
-                print("An exception occurred: {}".format(e))
+        #If we want to upload the mp4s to S3 include this line, but I don't think it's necessary
+        #s3_client.upload_file(output_file_path, BUCKET_NAME, SOURCE_VIDEO_PREFIX + output_file_name)
+
+        return mov_file_name
+
+    except Exception as e:
+        print("An exception occurred: {}".format(e))
 
 
-def split_video():
+def split_video(mov_file_name, video_info):
     """
     Split video in ../data/video into frames saved to ../data/imgs
     """
 
     # Read the video from specified path
-    cam = cv2.VideoCapture(VIDEO_DIRECTORY + "walking.mp4")
-    print("duration\n")
+    cam = cv2.VideoCapture(TEMP_DIRECTORY + mov_file_name)
 
-    video_info = get_duration(cam)
-
-    # worked = cam.set(FRAME_RATE, 1)
-    # print("Worked: {}\n\n\n".format(worked))
-
-    # frame
     currentframe = 0
 
-    # simulates frame rate
-    frame_rate = 10
-    prev = 0
+    target_frame = 0
+    frame_increment = int(video_info.get("fps") / 2)
 
     while True:
-        # control frame rate for *live feed*
-        # time_elapsed = time.time() - prev
-
-        # reading from frame
         ret, frame = cam.read()
 
         if not ret:
             break
 
-        # control frame rate for live feed
-        # if ret and time_elapsed > 1./frame_rate:
-        # prev = time.time()
+        if currentframe == target_frame:
+            frame_name = mov_file_name.replace(".mov", "") + '_frame_' + str(currentframe) + '.jpg'
+            cv2.imwrite(TEMP_DIRECTORY + frame_name, frame)
+            target_frame += frame_increment
 
-        # if video is still left continue creating images
-        # total_frames = get_duration(cam)['frame_count']
-        # duration_s = get_duration(cam)['duration_s']
-        # frame_selector = total_frames / (duration_s * SIM_FRAME_RATE)
-
-
-        # failed attempt to simulate frame rate
-        # if currentframe % frame_selector == 0:
-        name = IMAGE_DIRECTORY + 'frame-' + str(currentframe) + '.jpg'
-        print ('Creating...' + name)
-
-        # writing the extracted images
-        cv2.imwrite(name, frame)
+        # If we want to upload the frames:
+        # s3_client.upload_file(TEMP_DIRECTORY + frame_name,
+        #                       BUCKET_NAME,
+        #                       IMAGES_PREFIX + mov_file_name.replace(".mp4", "") + 'frame-' + str(currentframe) + '.jpg')
 
         # increasing counter so that it will
         # show how many frames are created
@@ -151,86 +136,107 @@ def get_duration(cam):
     }
 
 
-def remove_all_imgs():
-    """
-    Remove all images from ../data/imgs
-    """
-
-    all_images = os.listdir(IMAGE_DIRECTORY)
-
-    for image in all_images:
-        if image.endswith(".jpg"):
-            os.remove(os.path.join(IMAGE_DIRECTORY, image))
+def clear_temp_folder():
+    for file in os.listdir(TEMP_DIRECTORY):
+        os.remove(os.path.join(TEMP_DIRECTORY, file))
 
 
-def remove_dead_frames(video_info):
-    image_directory_content = os.listdir(IMAGE_DIRECTORY)
-    frames = list(filter(lambda image: image.endswith(".jpg"), image_directory_content))
-    frames.sort()
-    frame_increment = int(video_info.get("fps")/2)
-    percent_diff_threshold = 3
+def remove_dead_frames(video_info, mov_file_name, cam):
+    try:
+        base_file_name = mov_file_name.replace(".mov", "")
+        image_directory_content = os.listdir(TEMP_DIRECTORY)
+        frames = list(filter(lambda image: image.endswith(".jpg"), image_directory_content))
+        num_total_frames = int(video_info.get("duration_s") * video_info.get("fps"))
+        frames.sort()
+        frame_increment = int(video_info.get("fps")/2)
+        percent_diff_threshold = 3
 
-    active_clips = []
+        active_clips = []
 
-    active_audio = []
+        active_audio = []
 
-    recording_audio = False
+        recording_audio = False
 
-    print("Analyzing dead frames")
+        print("STEP: Analyzing dead frames")
 
-    for frame_number in range(0, len(frames), frame_increment):
-        if frame_number + frame_increment < len(frames):
-            img1 = cv2.imread(IMAGE_DIRECTORY + "frame-" + str(frame_number) + ".jpg")
-            img2 = cv2.imread(IMAGE_DIRECTORY + "frame-" + str(frame_number + frame_increment) + ".jpg")
-            absolute_difference = cv2.absdiff(img1, img2).astype(np.uint8)
-            threshold_difference = cv2.threshold(absolute_difference, 10, 255, cv2.THRESH_BINARY)[1]
-            percent_diff = (np.count_nonzero(threshold_difference) * 100) / absolute_difference.size
-            if percent_diff > percent_diff_threshold:
-                if not recording_audio:
-                    timestamp = (frame_number / video_info.get("fps"))
-                    recording_audio = True
-                    active_audio.append(timestamp * 1000)
-                    print(timestamp)
+        for frame_number in range(0, num_total_frames, frame_increment):
+            if frame_number + frame_increment < num_total_frames:
+                img1 = cv2.imread(TEMP_DIRECTORY + base_file_name + "_frame_" + str(frame_number) + ".jpg")
+                img2 = cv2.imread(TEMP_DIRECTORY + base_file_name + "_frame_" + str(frame_number + frame_increment) + ".jpg")
+                absolute_difference = cv2.absdiff(img1, img2).astype(np.uint8)
+                threshold_difference = cv2.threshold(absolute_difference, 10, 255, cv2.THRESH_BINARY)[1]
+                percent_diff = (np.count_nonzero(threshold_difference) * 100) / absolute_difference.size
+                if percent_diff > percent_diff_threshold:
+                    if not recording_audio:
+                        timestamp = (frame_number / video_info.get("fps"))
+                        recording_audio = True
+                        active_audio.append(timestamp * 1000)
 
-                for frame in range(frame_number, frame_number + frame_increment):
-                    img = cv2.imread(IMAGE_DIRECTORY + "frame-" + str(frame) + ".jpg")
-                    active_clips.append(img)
-            else:
-                if recording_audio:
-                    timestamp = (frame_number / video_info.get("fps"))
-                    recording_audio = False
-                    active_audio.append(timestamp * 1000)
-                    print(timestamp)
+                    active_clips.append(frame_number)
+                else:
+                    if recording_audio:
+                        timestamp = (frame_number / video_info.get("fps"))
+                        recording_audio = False
+                        active_audio.append(timestamp * 1000)
 
-    height, width, layers = active_clips[0].shape
-    size = (width, height)
-    video_writer = cv2.VideoWriter("../data/output/vid_no_audio.mp4", cv2.VideoWriter_fourcc(*'mp4v'), video_info.get("fps"), size)
+        final_frames = []
+        if len(active_clips) > 0:
 
-    print("Creating cleaned video")
-    for frame in active_clips:
-        video_writer.write(frame)
+            for base_frame in active_clips:
+                cam.set(1, base_frame)
+                for increment in range(frame_increment + 1):
+                    ret, frame = cam.read()
+                    final_frames.append(frame)
 
-    # EXTRACTING AUDIO
-    movie_py_video = mp.VideoFileClip(r"../data/video/walking.mp4")
-    movie_py_video.audio.write_audiofile(r"../data/output/my_audio.mp3")
-    all_audio = AudioSegment.from_mp3("../data/output/my_audio.mp3")
-    for time in range(0, len(active_audio), 2):
-        live_audio = all_audio[active_audio[time]: active_audio[time + 1]]
-        live_audio.export("../data/output/trimmed_audio.mp3", format="mp3")
+            height, width, layers = final_frames[0].shape
+            size = (width, height)
+            video_writer = cv2.VideoWriter(TEMP_DIRECTORY + base_file_name + "_no_audio.mp4",
+                                           cv2.VideoWriter_fourcc(*'mp4v'),
+                                           video_info.get("fps"),
+                                           size)
 
-    os.remove("../data/output/my_audio.mp3")
+            for frame in final_frames:
+                video_writer.write(frame)
 
-    video_writer.release()
+            # EXTRACTING AUDIO
+            movie_py_video = mp.VideoFileClip(TEMP_DIRECTORY + mov_file_name)
+            movie_py_video.audio.write_audiofile(TEMP_DIRECTORY + base_file_name + "_full_audio.mp3")
+            all_audio = AudioSegment.from_mp3(TEMP_DIRECTORY + base_file_name + "_full_audio.mp3")
 
-    subprocess.call(["ffmpeg",
-                     "-i",  "../data/output/vid_no_audio.mp4",
-                     "-i", "../data/output/trimmed_audio.mp3",
-                     "-c:v", "copy",
-                     "-map", "0:v",
-                     "-map", "1:a",
-                     "-shortest", "../data/output/final.mp4"])
+            if len(active_audio) % 2 != 0:
+                active_audio.append((len(frames) / video_info.get("fps") * 1000))
 
+            final_audio = AudioSegment.empty()
 
+            for time in range(0, len(active_audio), 2):
+                final_audio += all_audio[active_audio[time]: active_audio[time + 1]]
+
+            final_audio.export(TEMP_DIRECTORY + base_file_name + "_trimmed_audio.mp3", format="mp3")
+
+            video_writer.release()
+
+            subprocess.call(["ffmpeg",
+                             "-i",  TEMP_DIRECTORY + base_file_name + "_no_audio.mp4",
+                             "-i", TEMP_DIRECTORY + base_file_name + "_trimmed_audio.mp3",
+                             "-c:v", "copy",
+                             "-map", "0:v",
+                             "-map", "1:a",
+                             "-shortest", TEMP_DIRECTORY + base_file_name + "_final.mp4"])
+
+            s3_client.upload_file(TEMP_DIRECTORY + base_file_name + "_no_audio.mp4",
+                                  BUCKET_NAME,
+                                  VIDEO_WITHOUT_AUDIO_PREFIX + base_file_name + "_no_audio.mp4")
+
+            s3_client.upload_file(TEMP_DIRECTORY + base_file_name + "_trimmed_audio.mp3",
+                                  BUCKET_NAME,
+                                  AUDIO_PREFIX + base_file_name + "_trimmed_audio.mp3")
+
+            s3_client.upload_file(TEMP_DIRECTORY + base_file_name + "_final.mp4",
+                                  BUCKET_NAME,
+                                  VIDEO_WITH_AUDIO_PREFIX + base_file_name + "_final.mp4")
+
+    except Exception as e:
+        print(e)
 
 
 main()
